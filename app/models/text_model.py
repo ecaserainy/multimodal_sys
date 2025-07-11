@@ -32,14 +32,24 @@ class TextModel:
         return prompt
 
     def generate(self, question, context=None, max_new_tokens=50):
-        self.load_model()
+        self.load_model()  # 只有第一次会加载
         prompt = self.build_prompt(question, context)
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
         outputs = self.model.generate(**inputs, max_new_tokens=max_new_tokens)
         answer = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-        return answer[len(prompt):].strip()
+        return answer.replace(prompt, "").strip()
 
+    def run_inference(self, content: str):
+        print(f"[TextModel] Inference on: {content}")
+        answer = self.generate(content)
+        return {"response": answer}
+
+def load_text_model():
+    return TextModel()
+
+def run_text_inference(model, content):
+    return model.run_inference(content)
 
 
 
