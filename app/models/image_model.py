@@ -8,7 +8,7 @@ class ImageModel:
         self.processor = None
 
     def load_model(self):
-        model_path = "C:/Users/songi/PycharmProjects/PythonProject/Models/llava-v1.6-vicuna-7b"
+        model_path = "C:/Users/songi/PycharmProjects/PythonProject/Models/SmolVLM-Instruct"
         if self.model is None:
             print("[ImageModel] Loading model...")
             self.processor = LlavaNextProcessor.from_pretrained(model_path, trust_remote_code=True)
@@ -43,29 +43,3 @@ def run_image_inference(model, image_path):
 
 
 
-
-# class ImageModel:
-#     def __init__(self):
-#         model_path = "C:/Users/songi/PycharmProjects/PythonProject/Models/llava-v1.6-vicuna-7b"
-#         print("Loading LLaVA model...")
-#         self.model = LlavaNextForConditionalGeneration.from_pretrained(
-#             model_path,
-#             torch_dtype=torch.float16,
-#             device_map="auto",
-#         )
-#         self.processor = LlavaNextProcessor.from_pretrained(model_path,use_fast_tokenizer=True)
-#         print("LLaVA model loaded.")
-#
-#     def generate_caption(self, image_path):
-#         image = Image.open(image_path).convert("RGB")
-#         conversation = [
-#             {"role": "user", "content": [
-#                 {"type": "text", "text": "Describe this image in detail."},
-#                 {"type": "image"}
-#             ]}
-#         ]
-#         prompt = self.processor.apply_chat_template(conversation, add_generation_prompt=True)
-#         inputs = self.processor(images=image, text=prompt, return_tensors="pt").to(self.model.device)
-#         outputs = self.model.generate(**inputs, max_new_tokens=80)
-#         result = self.processor.decode(outputs[0], skip_special_tokens=True)
-#         return result

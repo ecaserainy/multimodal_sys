@@ -1,17 +1,13 @@
 from celery import shared_task
-from services.multimodal_manager import MultimodalManager
 import asyncio
-import os
-from dotenv import load_dotenv
+from services.di import get_container
 
-load_dotenv()
-manager = MultimodalManager(
-    openai_api_key=os.getenv("OPENAI_API_KEY")
-)
+manager = get_container().multimodal_manager
 
 @shared_task
 def multimodal_inference_task(task_data: dict):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     result = loop.run_until_complete(manager.process_task(task_data))
+    loop.close()
     return result

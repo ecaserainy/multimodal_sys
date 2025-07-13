@@ -1,200 +1,119 @@
-from fastapi import APIRouter, UploadFile, File, Form
-from typing import Optional
-from fastapi.responses import JSONResponse
-from celery.result import AsyncResult
-import os
 import json
+import os
+from typing import Optional
 
-from app.models.text_model import TextModel
-from app.models.image_model import ImageModel
-from app.models.audio_model import AudioModel
-from services.multimodal_manager import MultimodalManager
+from celery.result import AsyncResult
+from fastapi import APIRouter, UploadFile, File, Form, Depends
+from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
+from services.di import get_container
 from services.cache import redis_client
-
-from tasks.text_task import text_inference_task
-from tasks.image_task import image_inference_task
 from tasks.audio_task import audio_inference_task
+from tasks.image_task import image_inference_task
 from tasks.multimodal_agent_task import multimodal_agent_inference_task
+from tasks.text_task import text_inference_task
+from utils.file_utils import BASE_UPLOAD_DIR
+from services.multimodal_manager import MultimodalManager
+manager = MultimodalManager()
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 api_router = APIRouter()
-
-text_model = TextModel()
-image_model = ImageModel()
-audio_model = AudioModel()
-
-UPLOAD_DIR = "./data"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+container = get_container()
+os.makedirs(BASE_UPLOAD_DIR, exist_ok=True)
 
 
-@api_router.get("/health")
-async def health_check():
-    try:
-        pong = await redis_client.ping()
-        return {"status": "ok", "redis": pong}
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
+def success(data=None, message="success"):
+    return JSONResponse(status_code=200, content={"code": 0, "message": message, "data": data})
 
-@api_router.post("/chat/multimodal_sync")
-async def multimodal_chat_sync(
-    text: Optional[str] = Form(None),
-    image: Optional[UploadFile] = File(None),
-    audio: Optional[UploadFile] = File(None)
-):
-    image_caption = None
-    audio_transcript = None
-
-    if image:
-        image_path = os.path.join(UPLOAD_DIR, image.filename)
-        with open(image_path, "wb") as f:
-            f.write(await image.read())
-        image_caption = image_model.generate_caption(image_path)
-
-    if audio:
-        audio_path = os.path.join(UPLOAD_DIR, audio.filename)
-        with open(audio_path, "wb") as f:
-            f.write(await audio.read())
-        audio_transcript = audio_model.transcribe(audio_path)
-
-    combined_prompt = ""
-    if text:
-        combined_prompt += f"用户输入：{text}\n"
-    if image_caption:
-        combined_prompt += f"图片内容：{image_caption}\n"
-    if audio_transcript:
-        combined_prompt += f"语音内容：{audio_transcript}\n"
-
-    if not combined_prompt:
-        return JSONResponse({"error": "请至少提供文本、图片或音频中的一项"}, status_code=400)
-
-    reply = text_model.generate(combined_prompt)
-
-    return {
-        "input": {
-            "text": text,
-            "image": image.filename if image else None,
-            "audio": audio.filename if audio else None
-        },
-        "intermediate": {
-            "image_caption": image_caption,
-            "audio_transcript": audio_transcript
-        },
-        "reply": reply
-    }
-
+def error(message="error", code=1, status_code=400):
+    return JSONResponse(status_code=status_code, content={"code": code, "message": message, "data": None})
 
 def save_upload_file(file: UploadFile) -> str:
-    path = os.path.join(UPLOAD_DIR, file.filename)
+    path = os.path.join(BASE_UPLOAD_DIR, file.filename)
     with open(path, "wb") as f:
         f.write(file.file.read())
     return path
 
 
-@api_router.post("/api/text_infer_async")
-async def text_infer_async(content: str = Form(...)):
-    task = text_inference_task.delay(content)
-    return {"task_id": task.id}
+# === 健康检查 ===
 
+@api_router.get("/health")
+async def health_check():
+    try:
+        pong = await redis_client.ping()
+        return success({"redis": pong})
+    except Exception as e:
+        return error(str(e))
+
+@api_router.post("/api/text_infer_async")
+async def text_infer_async(content: str = Form(...), api_key: str = Depends(api_key_header)):
+    task = text_inference_task.delay(content)
+    return success({"task_id": task.id})
 
 @api_router.post("/api/image_infer_async")
-async def image_infer_async(file: UploadFile = File(...)):
+async def image_infer_async(file: UploadFile = File(...), api_key: str = Depends(api_key_header)):
     file_location = save_upload_file(file)
     task = image_inference_task.delay(file_location)
-    return {"task_id": task.id}
-
+    return success({"task_id": task.id})
 
 @api_router.post("/api/audio_infer_async")
-async def audio_infer_async(file: UploadFile = File(...)):
+async def audio_infer_async(file: UploadFile = File(...), api_key: str = Depends(api_key_header)):
     file_location = save_upload_file(file)
     task = audio_inference_task.delay(file_location)
-    return {"task_id": task.id}
+    return success({"task_id": task.id})
 
+
+# === 异步任务结果查询 ===
 
 @api_router.get("/api/task_result/{task_id}")
-async def get_task_result(task_id: str):
+async def get_task_result(task_id: str, api_key: str = Depends(api_key_header)):
     res = AsyncResult(task_id)
-    if res.ready():
-        return {"status": res.status, "result": res.result}
-    else:
-        return {"status": res.status, "result": None}
+    result = res.result if res.ready() else None
+    return success({"status": res.status, "result": result})
 
+
+# === 多模态任务 ===
 
 @api_router.post("/api/multimodal_infer_async")
 async def multimodal_infer_async(
     text: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
     audio: Optional[UploadFile] = File(None),
+    api_key: str = Depends(api_key_header),
 ):
-    manager = MultimodalManager(
-        openai_api_key=os.getenv("OPENAI_API_KEY")
-    )
-    image_path, audio_path = None, None
-    if image:
-        image_path = save_upload_file(image)
-    if audio:
-        audio_path = save_upload_file(audio)
+    image_path = save_upload_file(image) if image else None
+    audio_path = save_upload_file(audio) if audio else None
 
     task_ids = await manager.dispatch_tasks(text=text, image_path=image_path, audio_path=audio_path)
-    return {"task_ids": task_ids}
-
+    return success({"task_ids": task_ids})
 
 @api_router.get("/api/multimodal_result")
-async def multimodal_result(task_ids: str):
+async def multimodal_result(task_ids: str, api_key: str = Depends(api_key_header)):
     try:
         task_id_dict = json.loads(task_ids)
     except Exception:
-        return JSONResponse({"error": "task_ids格式错误"}, status_code=400)
-
-    from services.multimodal_manager import MultimodalManager
-    manager = MultimodalManager()
+        return error("task_ids 格式错误")
     results = await manager.aggregate_results(task_id_dict)
-    return results
+    return success(results)
 
+
+# === 多模态 Agent 智能体任务 ===
 
 @api_router.post("/api/multimodal_agent_infer_async")
 async def multimodal_agent_infer_async(
     text: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
     audio: Optional[UploadFile] = File(None),
+    api_key: str = Depends(api_key_header),
 ):
-    image_path, audio_path = None, None
-    if image:
-        image_path = save_upload_file(image)
-    if audio:
-        audio_path = save_upload_file(audio)
-
-    task_data = {
-        "text": text,
-        "image_path": image_path,
-        "audio_path": audio_path,
-    }
+    image_path = save_upload_file(image) if image else None
+    audio_path = save_upload_file(audio) if audio else None
+    task_data = {"text": text, "image_path": image_path, "audio_path": audio_path}
     task = multimodal_agent_inference_task.delay(task_data)
-    return {"task_id": task.id}
-
+    return success({"task_id": task.id})
 
 @api_router.get("/api/multimodal_agent_result/{task_id}")
-async def multimodal_agent_result(task_id: str):
+async def multimodal_agent_result(task_id: str, api_key: str = Depends(api_key_header)):
     res = AsyncResult(task_id)
-    if res.ready():
-        return {"status": res.status, "result": res.result}
-    else:
-        return {"status": res.status, "result": None}
-
-
-@api_router.get("/text")
-async def text_test(prompt: str = "你好，请自我介绍"):
-    reply = text_model.generate(prompt)
-    return {"reply": reply}
-
-
-@api_router.post("/image")
-async def image_test(file: UploadFile = File(...)):
-    image_path = save_upload_file(file)
-    result = image_model.generate_caption(image_path)
-    return {"caption": result}
-
-
-@api_router.post("/audio")
-async def audio_test(file: UploadFile = File(...)):
-    audio_path = save_upload_file(file)
-    result = audio_model.transcribe(audio_path)
-    return {"transcription": result}
+    result = res.result if res.ready() else None
+    return success({"status": res.status, "result": result})

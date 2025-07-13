@@ -1,7 +1,6 @@
 import os
 import time
 from dotenv import load_dotenv
-load_dotenv()
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -14,21 +13,22 @@ from fastapi.security import APIKeyHeader
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api_router import api_router
-from multimodal_customer_service.utils.file_utils import BASE_UPLOAD_DIR
-from services.multimodal_manager import MultimodalManager
+from utils.file_utils import BASE_UPLOAD_DIR
+from config import Config
+from utils.exception_handler import http_exception_handler, validation_exception_handler
+from services.di import get_container
 from tasks.audio_task import audio_inference_task
 from tasks.image_task import image_inference_task
 from tasks.text_task import text_inference_task
-from utils.exception_handler import http_exception_handler, validation_exception_handler
 
-manager = MultimodalManager()
+load_dotenv()
 
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from services.di import container
+    container = get_container()
     app.state.container = container
 
     print("[Startup] FastAPI starting...")
@@ -63,7 +63,8 @@ async def multimodal_infer_async(
         with open(audio_path, "wb") as f:
             f.write(await audio.read())
 
-    task_ids = await manager.dispatch_tasks(text=text, image_path=image_path, audio_path=audio_path)
+    task_ids = await get_container().multimodal_manager.dispatch_tasks(
+        text=text, image_path=image_path, audio_path=audio_path)
     return JSONResponse({"task_ids": task_ids})
 
 @app.get("/api/multimodal_result")
@@ -74,7 +75,7 @@ async def multimodal_result(task_ids: str):
     except Exception:
         return JSONResponse({"error": "task_ids格式错误"}, status_code=400)
 
-    results = await manager.aggregate_results(task_id_dict)
+    results = await get_container().multimodal_manager.aggregate_results(task_id_dict)
     return results
 
 @app.get("/health")
@@ -149,3 +150,4 @@ def clear_upload_dir(expire_seconds=3600):
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    print("FastAPI server started")

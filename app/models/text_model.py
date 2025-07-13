@@ -53,20 +53,3 @@ def run_text_inference(model, content):
 
 
 
-
-# class TextModel:
-#     def __init__(self, model_path="C:/Users/songi/PycharmProjects/PythonProject/Models/DeepSeek-R1-Distill-Qwen-1.5B", device="cuda"):
-#         self.device = device
-#         print("Loading DeepSeek model...")
-#         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-#         self.model = AutoModelForCausalLM.from_pretrained(
-#             model_path,
-#             device_map="auto",
-#             torch_dtype=torch.float16
-#         )
-#         self.pipe = pipeline("text-generation", model=self.model, tokenizer=self.tokenizer)
-#         print("DeepSeek model loaded.")
-#
-#     def generate(self, prompt):
-#         result = self.pipe(prompt, max_new_tokens=100)
-#         return result[0]['generated_text']

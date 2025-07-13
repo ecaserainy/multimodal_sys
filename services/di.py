@@ -1,10 +1,9 @@
-import torch
-from app.models.text_model import load_text_model
-from app.models.image_model import load_image_model
-from app.models.audio_model import load_audio_model
+from app.models.text_model import TextModel
+from app.models.image_model import ImageModel
+from app.models.audio_model import AudioModel
 
 
-class ModelContainer:
+class Container:
     def __init__(self):
         self._text_model = None
         self._image_model = None
@@ -12,39 +11,32 @@ class ModelContainer:
 
     @property
     def text_model(self):
-        if not self._text_model:
-            print("[Container] Loading text model...")
-            self._text_model = load_text_model()
+        if self._text_model is None:
+            self._text_model = TextModel()
         return self._text_model
 
     @property
     def image_model(self):
-        if not self._image_model:
-            print("[Container] Loading image model...")
-            self._image_model = load_image_model()
+        if self._image_model is None:
+            self._image_model = ImageModel()
         return self._image_model
 
     @property
     def audio_model(self):
-        if not self._audio_model:
-            print("[Container] Loading audio model...")
-            self._audio_model = load_audio_model()
+        if self._audio_model is None:
+            self._audio_model = AudioModel()
         return self._audio_model
 
     def release_resources(self):
-        """显式释放模型资源"""
-        if self._text_model:
-            del self._text_model
-            self._text_model = None
-        if self._image_model:
-            del self._image_model
-            self._image_model = None
-        if self._audio_model:
-            del self._audio_model
-            self._audio_model = None
-        torch.cuda.empty_cache()
-        print("[Container] Models released")
+        self._text_model = None
+        self._image_model = None
+        self._audio_model = None
 
 
-# 全局容器实例
-container = ModelContainer()
+_container = None
+
+def get_container():
+    global _container
+    if _container is None:
+        _container = Container()
+    return _container
