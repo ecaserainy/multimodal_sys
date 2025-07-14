@@ -10,6 +10,7 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
+    imports=["tasks.text_task", "tasks.image_task", "tasks.audio_task"],
     task_serializer='json',
     result_serializer='json',
     accept_content=['json'],

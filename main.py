@@ -11,6 +11,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.cors import CORSMiddleware
 
 from app.api_router import api_router
 from utils.file_utils import BASE_UPLOAD_DIR
@@ -20,7 +21,8 @@ from services.di import get_container
 from tasks.audio_task import audio_inference_task
 from tasks.image_task import image_inference_task
 from tasks.text_task import text_inference_task
-
+from utils.logger import setup_logger
+logger = setup_logger("main", log_dir="./logs")
 load_dotenv()
 
 API_KEY_NAME = "X-API-Key"
@@ -39,7 +41,19 @@ async def lifespan(app: FastAPI):
     print("[Shutdown] All resources released.")
 
 app = FastAPI(title="Multimodal Customer Service", lifespan=lifespan)
+logger.info("FastAPI app created")
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(api_router)
 
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
